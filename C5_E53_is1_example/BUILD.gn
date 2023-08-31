@@ -1,0 +1,16 @@
+static_library("myE53_is1") {
+    sources = [
+        "src/E53_is1.c",
+        "C5_E53_is1_example.c"
+    ]
+
+    include_dirs = [
+        "//utils/native/lite/include",
+        "//base/iot_hardware/peripheral/interfaces/kits",
+        "//vendor/bearpi/bearpi_hm_nano/common/iot_hardware_hals/include",   //
+        "include",
+        "//device/hisilicon/hispark_pegasus/sdk_liteos/platform/os/Huawei_LiteOS/components/lib/libc/musl/include"
+
+    ]
+    deps = [ "//vendor/bearpi/bearpi_hm_nano/common/iot_hardware_hals:bearpi_iot_hardware_hals" ]
+}

@@ -1,0 +1,8 @@
+static_library("mysemaphore_2") {
+    sources = [
+        "semaphore_2.c"
+    ]
+    include_dirs = [
+        "//utils/native/lite/include"
+    ]
+}

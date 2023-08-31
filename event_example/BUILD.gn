@@ -1,0 +1,8 @@
+static_library("myevent") {
+    sources = [
+        "event_example.c"
+    ]
+    include_dirs = [
+        "//utils/native/lite/include"
+    ]
+}
