@@ -1,8 +1,0 @@
-static_library("mymessage") {
-    sources = [
-        "message_example.c"
-    ]
-    include_dirs = [
-        "//utils/native/lite/include"
-    ]
-}

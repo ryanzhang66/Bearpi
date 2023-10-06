@@ -1,8 +1,0 @@
-static_library("app_example_2") {
-    sources = [
-        "example_2.c"
-    ]
-    include_dirs = [
-        "//utils/native/lite/include"
-    ]
-}
