@@ -1,0 +1,17 @@
+
+static_library("my220") {
+    sources = [
+        "220.c"
+    ]
+
+
+    include_dirs = [
+        "//base/iot_hardware/peripheral/interfaces/kits",
+        "//vendor/bearpi/bearpi_hm_nano/common/iot_hardware_hals/include",
+        "//device/hisilicon/hispark_pegasus/sdk_liteos/platform/os/Huawei_LiteOS/components/lib/libc/musl/include",
+        "//utils/native/lite/include"
+    
+        
+    ]
+    deps = [ "//vendor/bearpi/bearpi_hm_nano/common/iot_hardware_hals:bearpi_iot_hardware_hals" ]
+}

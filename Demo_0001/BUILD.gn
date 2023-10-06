@@ -1,0 +1,12 @@
+static_library("mydemo_0001") {
+    sources = [
+        "button_mon_example.c"
+    ]
+
+    include_dirs = [
+        "//base/iot_hardware/peripheral/interfaces/kits",
+        "//vendor/bearpi/bearpi_hm_nano/common/iot_hardware_hals/include",
+        "include"
+    ]
+    deps = [ "//vendor/bearpi/bearpi_hm_nano/common/iot_hardware_hals:bearpi_iot_hardware_hals" ]
+}

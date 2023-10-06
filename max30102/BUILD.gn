@@ -1,0 +1,36 @@
+# Copyright (c) 2020 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+static_library("max30102_demo") {
+    sources = [
+        "src/algorithm.c", 
+        #"max30102.c",
+        #"myiic.c",
+        #"mymain.c",
+        #"mymain0.c",
+        #"oled_i2c.c",
+        "src/max30102_hello.c",
+        "src/blood.c",
+        "max30102_demo.c",
+    ]
+
+    include_dirs = [
+        "//utils/native/lite/include",
+        "//kernel/liteos_m/components/cmsis/2.0",
+        "//base/iot_hardware/peripheral/interfaces/kits",
+        "//applications/sample/wifi-iot/app/max30102_demo",
+        "include",
+        "src",
+        "//device/hisilicon/hispark_pegasus/sdk_liteos/platform/os/Huawei_LiteOS/components/lib/libc/musl/include"
+        ]
+}

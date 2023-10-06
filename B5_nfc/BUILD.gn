@@ -1,0 +1,21 @@
+static_library("mynfc") {
+  sources = [
+    "nfc_example.c",
+    "nfc/NT3H.c",
+    "nfc/ndef/rtd/nfcForum.c",
+    "nfc/ndef/rtd/rtdText.c",
+    "nfc/ndef/rtd/rtdUri.c",
+    "nfc/nfc.c",
+  ]
+  cflags = [ "-Wno-unused-variable" ]
+  cflags += [ "-Wno-unused-but-set-variable" ]
+  cflags += [ "-Wno-unused-parameter" ]
+  include_dirs = [
+    "//base/iot_hardware/peripheral/interfaces/kits",
+    "//vendor/bearpi/bearpi_hm_nano/common/iot_hardware_hals/include",
+    "nfc/ndef",
+    "nfc/ndef/rtd/",
+    "nfc",
+  ]
+  deps = [ "//vendor/bearpi/bearpi_hm_nano/common/iot_hardware_hals:bearpi_iot_hardware_hals" ]
+}

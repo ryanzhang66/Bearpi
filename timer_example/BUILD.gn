@@ -1,0 +1,8 @@
+static_library("mytime") {
+    sources = [
+        "time.c"
+    ]
+    include_dirs = [
+        "//utils/native/lite/include"
+    ]
+}
