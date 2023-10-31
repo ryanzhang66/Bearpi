@@ -1,0 +1,33 @@
+config_file = [ "//vendor/bearpi/bearpi_hm_nano/common/third_party/libs/libiot_link.a" ]
+copy("config") {
+  sources = config_file
+  outputs = [ "//out/hispark_pegasus/wifiiot_hispark_pegasus/libs/{{source_file_part}}" ]
+}
+
+static_library("Parkinson") {
+    sources = [
+        "src/EMG_filters.c",
+        #"src/wifi_connect.c",
+        "src/E53_SC2.c",
+        "main.c",
+    ]
+    
+    cflags = [ "-Wno-unused-variable" ]
+    cflags += [ "-Wno-unused-but-set-variable" ]
+    
+    include_dirs = [
+        "//base/iot_hardware/peripheral/interfaces/kits",
+    "//vendor/bearpi/bearpi_hm_nano/common/iot_hardware_hals/include",
+    "//foundation/communication/wifi_lite/interfaces/wifiservice",
+    "//third_party/cJSON",
+    "//vendor/bearpi/bearpi_hm_nano/common/third_party/iot_link/oc_mqtt/oc_mqtt_al",
+    "//vendor/bearpi/bearpi_hm_nano/common/third_party/iot_link/oc_mqtt/oc_mqtt_profile_v5",
+    "//vendor/bearpi/bearpi_hm_nano/common/third_party/iot_link/inc",
+    "include",
+    "//src/third_party/cJSON",
+    ]
+
+    deps = [ ":config" ]
+  deps += [ "//vendor/bearpi/bearpi_hm_nano/common/iot_hardware_hals:bearpi_iot_hardware_hals" ]
+
+}

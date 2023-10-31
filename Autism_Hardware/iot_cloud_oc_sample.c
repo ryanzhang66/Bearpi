@@ -1,3 +1,14 @@
+/*
+    首先在华为云上点击命令下发按钮，触发deal_ cmd_ msg函数，再根据命令参数系统自动跳转到对应的参数函数，比如命令参数Max30102_ Begin,
+    他就会到deal_ max30102_ cmd函数执行if (strcmp( CJSON_ GetStringValue(obj_ para), "ON") == 0)这个 if判断语句，然后定时器启动，
+    传感器就会打开。
+    max30102传感器的运行函数static int Max30102TaskEntry(void)因为g_ app_ cb .max30102_ state = 1而运行，采集定时器设定时间的数据，
+    此时定时器停止工作，回调函数void Timer2_ Callback(void *arg)返回g_ app_ cb.flag_ timer_ 1 = 1这个定时器的停止标志位，定时器停止
+    运行。
+    同时，收集到的消息开始上报，我一开始没有加延迟上报，消息会有丢失，因此我加入了循环以及延迟函数来保证消息的全部上报，然后将
+    g_ app_ cb.max30102_ state = 0，这样是防止再次进入传感器读取数据的循环，至此整个命令下发的流程到此结束
+*/
+//C的头文件，以及内核头文件
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,8 +22,6 @@
 #include <oc_mqtt_profile.h>
 #include "E53_SC2.h"
 #include "wifi_connect.h"
-
-
 
 //ADC的头文件
 #include "iot_adc.h"
@@ -31,11 +40,14 @@
 
 #define CONFIG_WIFI_SSID "yuizhu" // 修改为自己的WiFi 热点账号
 #define CONFIG_WIFI_PWD "zhangran20040906" // 修改为自己的WiFi 热点密码
-#define CONFIG_APP_SERVERIP "117.78.5.125"
-#define CONFIG_APP_SERVERPORT "1883"
+#define CONFIG_APP_SERVERIP "117.78.5.125"  //这是华为云平台标准版的IP地址
+#define CONFIG_APP_SERVERPORT "1883"        //这是华为云开放MQTT端口，开放的还有8883端口
 #define CONFIG_APP_DEVICEID "64afecc9b84c1334befae1af_2023_10_1" // 替换为注册设备后生成的deviceid
 #define CONFIG_APP_DEVICEPWD "zhangran20040906" // 替换为注册设备后生成的密钥
-#define CLIENT_ID "64afecc9b84c1334befae1af_20201030_0_0_2023100104"
+
+//以下3个参数（CLIENT_ID，USERNAME，PASSWORD）可以由HMACSHA256算法生成
+//为硬件通过MQTT协议接入华为云IoT平台的鉴权依据，但是在本程序没有使用以下三个参数
+#define CLIENT_ID "64afecc9b84c1334befae1af_20201030_0_0_2023100104"     
 #define USERNAME "64afecc9b84c1334befae1af_20201030"
 #define PASSWORD "635ff09804b51dcd86f46a3c6a806e78ba3e890ecffda40318eed6c468bb9e2d"
 #define CONFIG_APP_LIFETIME 60 // < seconds
@@ -64,10 +76,12 @@
 #define MAX_I2C_IDX  1  //hi3861 i2c-1
 #define MAX_I2C_BAUDRATE 400*1000 //iic work frequency 400k (400*1000) 
 
+//这里是max30102的IIC的寄存器地址
 #define MAX30102_WR_address 0xAE
 #define I2C_WRITE_ADDR 0xAE
 #define I2C_READ_ADDR 0xAF
 
+//这里是Max30102的寄存器的地址
 #define REG_INTR_STATUS_1 0x00
 #define REG_INTR_STATUS_2 0x01
 #define REG_INTR_ENABLE_1 0x02
@@ -88,23 +102,27 @@
 #define REG_TEMP_FRAC 0x20
 #define REG_TEMP_CONFIG 0x21
 #define REG_PROX_INT_THRESH 0x30
-#define REG_REV_ID 0xFE //get max30102 infomation 
+#define REG_REV_ID 0xFE  //get max30102 infomation 
 #define REG_PART_ID 0xFF
 
 osMessageQueueId_t mid_MsgQueue;
+
+//这里是定义枚举，在CloudMainTaskEntry线程函数中做switch的case选项
 typedef enum {
     en_msg_cmd = 0,
-    en_msg_report,
+    en_msg_mpu6050_report,
     en_msg_max30102_report,
     en_msg_conn,
     en_msg_disconn,
 } en_msg_type_t;
 
+//云平台的请求参数，在msg_rcv_callback函数中使用
 typedef struct {
     char *request_id;
     char *payload;
 } cmd_t;
 
+//这里定义mpu6050消息上报的结构体
 typedef struct {
     int temp;
     int acce_x;
@@ -114,31 +132,32 @@ typedef struct {
     int gyro_y;
     int gyro_z;
     char band_1[10000];
-    unsigned int red;
-    unsigned int ir;
-} report_t;
+} report_mpu6050_t;
 
+//这里定义max30102消息上报的结构体
 typedef struct {
     unsigned int red;
     unsigned int ir;
 }report_max30102_t;
 
+//这里是定义消息打包的ID
 typedef struct {
     en_msg_type_t msg_type;
     union {
         cmd_t cmd;
-        report_t report;
+        report_mpu6050_t report_mpu6050;
         report_max30102_t report_max30102;
     } msg;
 } app_msg_t;
 
+//定义程序需要的参数变量
 typedef struct {
     osMessageQueueId_t app_msg;
     int connected;
-    int mpu6050;
-    int mpu6050_state;
-    int max30102;
-    int max30102_state;
+    int mpu6050;       //mpu6050的命令下发状态参数，类似于mpu6050.value = g_app_cb.mpu6050 ? "ON" : "OFF";
+    int mpu6050_state;   //mpu6050传感器的状态参数
+    int max30102;      //max30102的命令下发状态参数，类似于max30102.value = g_app_cb.max30102 ? "ON" : "OFF";
+    int max30102_state;  //max30102传感器的状态参数
 
     int flag_timer_1;     //判断运动检测时间是否到达
     int flag_timer_2;     //判断心率检测时间是否到达
@@ -148,12 +167,12 @@ typedef struct {
 static app_cb_t g_app_cb;
 int g_coverStatus = 1;
 int state = 0;
-uint32_t *pun_red_led;
-uint32_t *pun_ir_led;
-osTimerId_t ID1,ID2;
+uint32_t *pun_red_led;  //max30102红光数据的指针参数
+uint32_t *pun_ir_led;   //max30102红外光数据的指针参数
+osTimerId_t ID1,ID2;  //定时器的ID
 
-int ACCEL_x[100],ACCEL_y[100],ACCEL_z[100],GYRO_x[100],GYRO_y[100],GYRO_z[100];
-unsigned int RED[1000],IR[1000];
+int ACCEL_x[100],ACCEL_y[100],ACCEL_z[100],GYRO_x[100],GYRO_y[100],GYRO_z[100];  //定义mpu6050参数数组，作为运动数据的缓存区
+unsigned int RED[1000],IR[1000];    //定义max30102参数数组，作为运动数据的缓存区
 
 /***** 定时器1 回调函数 *****/
 void Timer1_Callback(void *arg)
@@ -169,6 +188,11 @@ void Timer2_Callback(void *arg)
     g_app_cb.flag_timer_2 = 1;
 }
 
+/*
+    函数名：max30102_report_msg
+    参数：report_max30102_t *report_max30102
+    作用：max30102的消息上报函数,定义了max30102的消息队列
+*/
 static void max30102_report_msg(report_max30102_t *report_max30102)
 {
     oc_mqtt_profile_service_t service;
@@ -204,7 +228,12 @@ static void max30102_report_msg(report_max30102_t *report_max30102)
     return;
 }
 
-static void deal_report_msg(report_t *report)
+/*
+    函数名：mpu6050_report_msg
+    参数：report_mpu6050_t *report_mpu6050
+    作用：mpu6050的消息上报函数，定义了mpu6050的消息队列
+*/
+static void mpu6050_report_msg(report_mpu6050_t *report_mpu6050)
 {
     oc_mqtt_profile_service_t service;
     oc_mqtt_profile_kv_t temperature;
@@ -231,54 +260,44 @@ static void deal_report_msg(report_t *report)
     service.nxt = NULL;
 
     temperature.key = "Temperature";
-    temperature.value = &report->temp;
+    temperature.value = &report_mpu6050->temp;
     temperature.type = EN_OC_MQTT_PROFILE_VALUE_INT;
     temperature.nxt = &Accel_x;
 
     Accel_x.key = "Accel_x";
-    Accel_x.value = &report->acce_x;
+    Accel_x.value = &report_mpu6050->acce_x;
     Accel_x.type = EN_OC_MQTT_PROFILE_VALUE_INT;
     Accel_x.nxt = &Accel_y;
 
     Accel_y.key = "Accel_y";
-    Accel_y.value = &report->acce_y;
+    Accel_y.value = &report_mpu6050->acce_y;
     Accel_y.type = EN_OC_MQTT_PROFILE_VALUE_INT;
     Accel_y.nxt = &Accel_z;
 
     Accel_z.key = "Accel_z";
-    Accel_z.value = &report->acce_z;
+    Accel_z.value = &report_mpu6050->acce_z;
     Accel_z.type = EN_OC_MQTT_PROFILE_VALUE_INT;
     Accel_z.nxt = &Gyro_x;
 
     Gyro_x.key = "Gyro_x";
-    Gyro_x.value = &report->gyro_x;
+    Gyro_x.value = &report_mpu6050->gyro_x;
     Gyro_x.type = EN_OC_MQTT_PROFILE_VALUE_INT;
     Gyro_x.nxt = &Gyro_y;
 
     Gyro_y.key = "Gyro_y";
-    Gyro_y.value = &report->gyro_y;
+    Gyro_y.value = &report_mpu6050->gyro_y;
     Gyro_y.type = EN_OC_MQTT_PROFILE_VALUE_INT;
     Gyro_y.nxt = &Gyro_z;
 
     Gyro_z.key = "Gyro_z";
-    Gyro_z.value = &report->gyro_z;
+    Gyro_z.value = &report_mpu6050->gyro_z;
     Gyro_z.type = EN_OC_MQTT_PROFILE_VALUE_INT;
     Gyro_z.nxt = &voltage_1;
 
     voltage_1.key = "Angle_1";
-    voltage_1.value = &report->band_1;
+    voltage_1.value = &report_mpu6050->band_1;
     voltage_1.type = EN_OC_MQTT_PROFILE_VALUE_STRING;
-    voltage_1.nxt = &Red;
-
-    Red.key = "Red";
-    Red.value = &report->red;
-    Red.type = EN_OC_MQTT_PROFILE_VALUE_INT;
-    Red.nxt = &Ir;
-
-    Ir.key = "Ir";
-    Ir.value = &report->ir;
-    Ir.type = EN_OC_MQTT_PROFILE_VALUE_INT;
-    Ir.nxt = &mpu6050;
+    voltage_1.nxt = &mpu6050;
 
     mpu6050.key = "MPU6050Status";
     mpu6050.value = g_app_cb.mpu6050 ? "ON" : "OFF";
@@ -289,7 +308,11 @@ static void deal_report_msg(report_t *report)
     return;
 }
 
-// use this function to push all the message to the buffer
+/*
+    函数名：msg_rcv_callback
+    参数：oc_mqtt_profile_msgrcv_t *msg
+    作用：使用此函数将所有消息推送到缓冲区
+*/
 static int msg_rcv_callback(oc_mqtt_profile_msgrcv_t *msg)
 {
     int ret = 0;
@@ -329,6 +352,11 @@ static int msg_rcv_callback(oc_mqtt_profile_msgrcv_t *msg)
     return ret;
 }
 
+/*
+    函数名：oc_cmdresp
+    参数：cmd_t *cmd,int cmdret
+    作用：向华为云平台返回请求
+*/
 static void oc_cmdresp(cmd_t *cmd, int cmdret)
 {
     oc_mqtt_profile_cmdresp_t cmdresp;
@@ -342,6 +370,12 @@ static void oc_cmdresp(cmd_t *cmd, int cmdret)
 
 ///< COMMAND DEAL
 #include <cJSON.h>
+
+/*
+    函数名：deal_mpu6050_cmd
+    参数：cmd_t *cmd, cJSON *obj_root
+    作用：用来开启或关闭mpu6050的传感器，本来的mpu6050传感器线程函数是开启的，只不过我用if+状态参数跳过了数据采集与上云
+*/
 static void deal_mpu6050_cmd(cmd_t *cmd, cJSON *obj_root)
 {
     cJSON *obj_paras;
@@ -352,18 +386,18 @@ static void deal_mpu6050_cmd(cmd_t *cmd, cJSON *obj_root)
     if (obj_paras == NULL) {
         cJSON_Delete(obj_root);
     }
-    obj_para = cJSON_GetObjectItem(obj_paras, "kneading_control");
+    obj_para = cJSON_GetObjectItem(obj_paras, "kneading_control");      //对应华为云IoTDA的产品——>模型的命令名称——>下发参数
     if (obj_paras == NULL) {
         cJSON_Delete(obj_root);
     }
     ///< operate the LED here
     if (strcmp(cJSON_GetStringValue(obj_para), "ON") == 0) {
-        g_app_cb.mpu6050 = 1;
-            g_app_cb.mpu6050_state = 1;
+        g_app_cb.mpu6050 = 1;           //对应消息队列里定义的ON
+            g_app_cb.mpu6050_state = 1; //打开mpu6050传感器
             printf("mpu6050传感器 On!");
     } else {
-        g_app_cb.mpu6050 = 0;
-            g_app_cb.mpu6050_state = 0;
+        g_app_cb.mpu6050 = 0;           //对应消息队列里定义的OFF
+            g_app_cb.mpu6050_state = 0; //打开mpu6050传感器
             printf("mpu6050传感器 Off!");
     }
     cmdret = 0;
@@ -373,6 +407,11 @@ static void deal_mpu6050_cmd(cmd_t *cmd, cJSON *obj_root)
     return;
 }
 
+/*
+    函数名：deal_max30102_cmd
+    参数：cmd_t *cmd, cJSON *obj_root
+    作用：用来开启或关闭max30102的传感器，本来的max30102传感器线程函数是开启的，只不过我用if+状态参数跳过了数据采集与上云
+*/
 static void deal_max30102_cmd(cmd_t *cmd, cJSON *obj_root)
 {
     cJSON *obj_paras;
@@ -383,7 +422,7 @@ static void deal_max30102_cmd(cmd_t *cmd, cJSON *obj_root)
     if (obj_paras == NULL) {
         cJSON_Delete(obj_root);
     }
-    obj_para = cJSON_GetObjectItem(obj_paras, "Max30102_Begin_control");
+    obj_para = cJSON_GetObjectItem(obj_paras, "Max30102_Begin_control");    //对应华为云IoTDA的产品——>模型的命令名称——>下发参数
     if (obj_para == NULL) {
         cJSON_Delete(obj_root);
     }
@@ -404,6 +443,11 @@ static void deal_max30102_cmd(cmd_t *cmd, cJSON *obj_root)
     return;
 }
 
+/*
+    函数名：deal_cmd_msg
+    参数：cmd_t *cmd
+    作用：定义命令下发的命令名称，同时可以调用对应的命令执行函数
+*/
 static void deal_cmd_msg(cmd_t *cmd)
 {
     cJSON *obj_root;
@@ -418,15 +462,20 @@ static void deal_cmd_msg(cmd_t *cmd)
     if (obj_cmdname == NULL) {
         cJSON_Delete(obj_root);
     }
-    if (strcmp(cJSON_GetStringValue(obj_cmdname), "Kneading") == 0) {
+    if (strcmp(cJSON_GetStringValue(obj_cmdname), "Kneading") == 0) {       //对应华为云IoTDA的产品——>模型的命令名称
         deal_mpu6050_cmd(cmd, obj_root);
-    } else if (strcmp(cJSON_GetStringValue(obj_cmdname), "Max30102_Begin") == 0) {
+    } else if (strcmp(cJSON_GetStringValue(obj_cmdname), "Max30102_Begin") == 0) {  //对应华为云IoTDA的产品——>模型的命令名称
         deal_max30102_cmd(cmd, obj_root);
     }
 
     return;
 } 
 
+/*
+    函数名：CloudMainTaskEntry
+    参数：空
+    作用：这是一个上云的线程函数，包含初次的WIFI的连接，检查与华为云MQTT服务器的连通性，同时实时检测华为云平台命令下发
+*/
 static int CloudMainTaskEntry(void)
 {
     app_msg_t *app_msg;
@@ -460,24 +509,25 @@ static int CloudMainTaskEntry(void)
         printf("oc_mqtt_profile_connect faild!\r\n");
     }
 
+    //检测命令下发
     while (1) {
         app_msg = NULL;
         (void)osMessageQueueGet(g_app_cb.app_msg, (void **)&app_msg, NULL, 0xFFFFFFFF);
         if (app_msg != NULL) {
             switch (app_msg->msg_type) {
                 case en_msg_cmd:
-                    deal_cmd_msg(&app_msg->msg.cmd);
+                    deal_cmd_msg(&app_msg->msg.cmd);  //主的命令名称
                     break;
-                case en_msg_report:
-                    deal_report_msg(&app_msg->msg.report);
+                case en_msg_mpu6050_report:
+                    mpu6050_report_msg(&app_msg->msg.report_mpu6050);  //副的下发参数
                     break;
                 case en_msg_max30102_report:
-                    max30102_report_msg(&app_msg->msg.report_max30102);
+                    max30102_report_msg(&app_msg->msg.report_max30102); //副的下发参数
                     break;
                 default:
                     break;
             }
-            free(app_msg);
+            free(app_msg); //释放堆空间
         }
     }
     return 0;
@@ -499,7 +549,9 @@ static float GetVoltage1(void)
 }
 
 /*
-    map函数（用来映射）
+    函数名：map
+    参数：float val, float I_Min, float I_Max, float O_Min, float O_Max
+    作用：映射数据，用比例完成映射区间
 */
 float map(float val, float I_Min, float I_Max, float O_Min, float O_Max)
 	{
@@ -507,6 +559,11 @@ float map(float val, float I_Min, float I_Max, float O_Min, float O_Max)
     }
 
 //max30102获取红光和红外光数据
+/*
+    函数名：heartrateTask_Init
+    参数：空
+    作用：初始化max30102传感器
+*/
 static void heartrateTask_Init()
 {
     //IoTGpioInit(MAX_SDA_IO0);
@@ -536,7 +593,7 @@ static int SensorTaskEntry(void)
                 printf("E53_SC2 Init failed!\r\n");
                 return;
             }
-    // 定时器1：用于手指捏合，目前设置时间为8秒触发
+    // 定时器1：用于运动检测，目前设置时间为8秒触发
     exec1 = 8U;
     id1 = osTimerNew(Timer1_Callback, osTimerOnce, &exec1, NULL);
 
@@ -610,15 +667,15 @@ static int SensorTaskEntry(void)
                         {
                             printf("\nj:%d",j);
                             printf("\nAccel_x:%d",ACCEL_x[j]);
-                            app_msg->msg_type = en_msg_report;
-                        app_msg->msg.report.temp = (int)data.Temperature;
-                        app_msg->msg.report.acce_x = ACCEL_x[j];
-                        app_msg->msg.report.acce_y = ACCEL_y[j];
-                        app_msg->msg.report.acce_z = ACCEL_z[j];
-                        app_msg->msg.report.gyro_x = GYRO_x[j];
-                        app_msg->msg.report.gyro_y = GYRO_y[j];
-                        app_msg->msg.report.gyro_z = GYRO_z[j];
-                        sprintf(app_msg->msg.report.band_1,"%.2f",flex_angle_1);
+                            app_msg->msg_type = en_msg_mpu6050_report;
+                        app_msg->msg.report_mpu6050.temp = (int)data.Temperature;
+                        app_msg->msg.report_mpu6050.acce_x = ACCEL_x[j];
+                        app_msg->msg.report_mpu6050.acce_y = ACCEL_y[j];
+                        app_msg->msg.report_mpu6050.acce_z = ACCEL_z[j];
+                        app_msg->msg.report_mpu6050.gyro_x = GYRO_x[j];
+                        app_msg->msg.report_mpu6050.gyro_y = GYRO_y[j];
+                        app_msg->msg.report_mpu6050.gyro_z = GYRO_z[j];
+                        sprintf(app_msg->msg.report_mpu6050.band_1,"%.2f",flex_angle_1);
                         if (osMessageQueuePut(g_app_cb.app_msg, &app_msg, 0U, CONFIG_QUEUE_TIMEOUT) != 0) {
                             free(app_msg);
                         }
@@ -694,8 +751,8 @@ static int Max30102TaskEntry(void)
                         for (j=0; j<i; j++)
                         {
                             app_msg->msg_type = en_msg_max30102_report;
-                            app_msg->msg.report.red = RED[j];
-                            app_msg->msg.report.ir = IR[j];
+                            app_msg->msg.report_max30102.red = RED[j];
+                            app_msg->msg.report_max30102.ir = IR[j];
                             if (osMessageQueuePut(g_app_cb.app_msg, &app_msg, 0U, CONFIG_QUEUE_TIMEOUT) != 0) {
                             free(app_msg);
                             }

@@ -25,12 +25,10 @@ lite_component("app") {
         #"time_example_2:mytime_2",
         #"D11_iot_cloud_oc_agriculture:cloud_oc_agriculture",
         #"D9:cloud_oc_manhole_cover",
-<<<<<<< HEAD
-        "max30102_my:max30102_demo"
-=======
+        #"max30102_my:max30102_demo"
         #"max30102_my:max30102_demo"
         #"demolink:example_demolink"
-        "Autism_Hardware:cloud_oc_manhole_cover"
->>>>>>> 888b735 (第二次提交)
+        #"Autism_Hardware:cloud_oc_manhole_cover",
+        "Another_One:Parkinson",
     ]
 }
